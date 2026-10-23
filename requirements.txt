@@ -22,7 +22,10 @@ requests==2.33.0
 # AVANT 1.23   -> CVE-2019-11236 (injection CRLF)
 urllib3==2.8.0
 # AVANT 2018.11.29 -> CVE-2022-23491 (autorites de certification compromises)
-certifi==2024.8.30
+# TP2 : 2024.8.30 -> GHSA-6q48-6c7w-9gw2 / PYSEC-2026-4320 (autorite eMudhra
+#   compromise dans le magasin de certificats). Cette CVE est apparue APRES le
+#   TP1 : c'est le pipeline (job "sca") qui l'a signalee, pas nous.
+certifi==2026.10.19
 charset-normalizer==3.4.0
 # AVANT 2.7    -> CVE-2024-3651 (deni de service, complexite quadratique)
 idna==3.15
