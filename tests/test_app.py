@@ -93,6 +93,43 @@ def test_recherche_de_compte_legitime_fonctionne(client):
 
 
 # ---------------------------------------------------------------------------
+# 2 bis. Non-regression : la route /search  (failles trouvees par OWASP ZAP)
+#
+# Ces deux tests verrouillent les failles que le scan DAST avait exploitees
+# sur la premiere version de /search (injection SQL, XSS reflechi et injection
+# de template). Ils tournent en 3 secondes, la ou le scan ZAP prend 3 minutes :
+# la porte DAST trouve la faille, le test unitaire l'empeche de revenir.
+# ---------------------------------------------------------------------------
+
+def test_injection_sql_dans_recherche_ne_fuit_aucune_donnee(client):
+    """ZAP obtenait tous les comptes avec la charge utile   %' OR '1'='1' --"""
+    reponse = client.get("/search", query_string={"q": "%' OR '1'='1' -- "})
+    assert reponse.status_code == 200
+    assert b"TN59" not in reponse.data
+
+
+def test_xss_et_template_dans_recherche_sont_echappes(client):
+    """ZAP executait <script> et evaluait {{ 2756*1993 }} dans la page.
+
+    Avec un vrai template, les deux doivent ressortir en texte echappe.
+    """
+    reponse = client.get(
+        "/search", query_string={"q": "<script>alert(1)</script>{{7*7}}"}
+    )
+    assert reponse.status_code == 200
+    assert b"<script>" not in reponse.data  # balise inactive
+    assert b"&lt;script&gt;" in reponse.data  # affichee comme du texte
+    assert b"49" not in reponse.data  # le template n'a pas ete evalue
+
+
+def test_recherche_legitime_fonctionne(client):
+    """Contre-epreuve : la fonctionnalite est conservee, pas supprimee."""
+    reponse = client.get("/search", query_string={"q": "alice"})
+    assert reponse.status_code == 200
+    assert b"TN59" in reponse.data
+
+
+# ---------------------------------------------------------------------------
 # 3. Non-regression : XSS  (TP1, trouvee en revue de code, par aucun scanner)
 # ---------------------------------------------------------------------------
 

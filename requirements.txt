@@ -19,8 +19,10 @@ blinker==1.9.0
 PyYAML==6.0.2
 # AVANT 2.19.1 -> CVE-2023-32681 (fuite de l'en-tete Proxy-Authorization)
 requests==2.33.0
-# Retour a 1.26.5 : la version 2.x casse notre client HTTP interne.
-urllib3==1.26.5
+# AVANT 1.23   -> CVE-2019-11236 (injection CRLF)
+# TP2 : retour en 1.26.5 refuse par la porte SCA (10 CVE connues, dont
+#   CVE-2023-45803 et CVE-2024-37891). On reste donc en 2.8.0.
+urllib3==2.8.0
 # AVANT 2018.11.29 -> CVE-2022-23491 (autorites de certification compromises)
 # TP2 : 2024.8.30 -> GHSA-6q48-6c7w-9gw2 / PYSEC-2026-4320 (autorite eMudhra
 #   compromise dans le magasin de certificats). Cette CVE est apparue APRES le

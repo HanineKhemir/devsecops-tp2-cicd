@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Recherche — VulnBank</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #ddd; padding: .5rem; text-align: left; }
+  </style>
+</head>
+<body>
+  <!-- La saisie est inseree via la variable de template {{ "{{ terme }}" }} :
+       Jinja2 l'echappe automatiquement, donc une balise tapee par
+       l'utilisateur s'affiche comme du texte au lieu d'etre executee. -->
+  <h2>Resultats pour « {{ terme }} »</h2>
+
+  {% if resultats %}
+  <table>
+    <tr><th>Titulaire</th><th>IBAN</th><th>Solde</th></tr>
+    {% for ligne in resultats %}
+      <tr><td>{{ ligne["owner"] }}</td><td>{{ ligne["iban"] }}</td><td>{{ ligne["balance"] }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p>Aucun compte ne correspond.</p>
+  {% endif %}
+
+  <p><a href="/">Retour</a></p>
+</body>
+</html>

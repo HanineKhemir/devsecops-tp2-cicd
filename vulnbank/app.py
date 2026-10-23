@@ -4,17 +4,9 @@ import tempfile
 
 import requests
 import yaml
-from flask import (
-    Flask,
-    redirect,
-    render_template,
-    render_template_string,
-    request,
-    session,
-    url_for,
-)
+from flask import Flask, redirect, render_template, request, session, url_for
 
-from vulnbank.db import DB_PATH, get_connection, init_db
+from vulnbank.db import get_connection, init_db
 from vulnbank.security import hash_password, verify_password
 
 app = Flask(__name__)
@@ -106,28 +98,37 @@ def accounts():
 
 @app.route("/search")
 def search():
-    """Recherche rapide de comptes (nouvelle fonctionnalite)."""
+    """Recherche rapide de comptes (version securisee)."""
     terme = request.args.get("q", "")
 
-    # Requete construite par concatenation de chaines.
+    # FAILLE CORRIGEE : Injection SQL   |   DETECTEE PAR : OWASP ZAP (scan
+    #   actif, alerte High "SQL Injection") et Bandit (regle B608, severite
+    #   moyenne : il voit la concatenation mais ne peut pas l'exploiter).
+    # AVANT (vulnerable) :
+    #   requete = "... WHERE owner LIKE '%" + terme + "%'"
+    #   lignes = conn.execute(requete).fetchall()
+    # POURQUOI FAUX : la saisie etait collee dans la requete SQL. ZAP a envoye
+    #   la charge utile   %' OR '1'='1' --   et a obtenu TOUS les comptes.
+    # CORRECTION : requete PARAMETREE. Le "?" est une valeur liee : la saisie
+    #   est une donnee, jamais du code SQL.
     conn = get_connection()
-    requete = (
-        "SELECT owner, iban, balance FROM accounts "
-        "WHERE owner LIKE '%" + terme + "%'"
-    )
-    lignes = conn.execute(requete).fetchall()
+    lignes = conn.execute(
+        "SELECT owner, iban, balance FROM accounts WHERE owner LIKE ?",
+        (f"%{terme}%",),
+    ).fetchall()
     conn.close()
 
-    # Page construite a la main, puis rendue comme un template.
-    page = "<h2>Resultats pour " + terme + "</h2><ul>"
-    for ligne in lignes:
-        page += "<li>%s — %s — %s</li>" % (
-            ligne["owner"],
-            ligne["iban"],
-            ligne["balance"],
-        )
-    page += "</ul><p><a href='/'>Retour</a></p>"
-    return render_template_string(page)
+    # FAILLE CORRIGEE : XSS reflechi   |   DETECTEE PAR : OWASP ZAP (scan
+    #   actif, alerte High "Cross Site Scripting (Reflected)").
+    # AVANT (vulnerable) :
+    #   page = "<h2>Resultats pour " + terme + "</h2>..."
+    #   return render_template_string(page)
+    # POURQUOI FAUX : render_template_string() compile la chaine comme un
+    #   template. La saisie devenait donc du code HTML (et meme du Jinja2) :
+    #   ZAP a injecte <script>alert(1)</script> et l'a vu s'executer.
+    # CORRECTION : un vrai template. Jinja2 echappe automatiquement les
+    #   variables : les balises s'affichent comme du texte.
+    return render_template("search.html", terme=terme, resultats=lignes)
 
 
 @app.route("/comment", methods=["POST"])
@@ -159,11 +160,16 @@ def export():
     #   serveur (injection de commande).
     # CORRECTION : (1) on valide le nom avec une liste blanche (regex), (2) on
     #   n'utilise plus le shell : l'export se fait via l'API SQLite (iterdump()).
+    if not ACCOUNT_NAME.match(account):
+        return "Nom de compte invalide", 400
     export_path = os.path.join(
         tempfile.gettempdir(), f"vulnbank_export_{account}.sql"
     )
-    # Export rapide en appelant directement l'outil sqlite3.
-    os.system(f"sqlite3 {DB_PATH} '.dump' > {export_path}")
+    conn = get_connection()
+    with open(export_path, "w") as handle:
+        for line in conn.iterdump():
+            handle.write(line + "\n")
+    conn.close()
     return f"Export de {account} termine", 200
 
 
@@ -198,6 +204,6 @@ if __name__ == "__main__":
     #   expose aussi l'app sur toutes les interfaces reseau.
     # CORRECTION : debug et host viennent de variables d'environnement, avec des
     #   valeurs sures par defaut (debug off, ecoute locale 127.0.0.1).
-    # Debug actif pour voir les erreurs de la nouvelle recherche.
     host = os.environ.get("HOST", "127.0.0.1")
-    app.run(host=host, port=5000, debug=True)
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(host=host, port=5000, debug=debug)
