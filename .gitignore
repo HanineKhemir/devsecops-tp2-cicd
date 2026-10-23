@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.db
+.venv/
+.scannerwork/
+
+# Rapports de scan : regeneres par le pipeline, publies en artifacts
+reports/

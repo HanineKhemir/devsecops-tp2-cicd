@@ -1,0 +1,28 @@
+# =====================================================================
+# SCA (Software Composition Analysis) — Securite des dependances
+# Detecte par : pip-audit (base de vulnerabilites OSV)
+# Resultat : AVANT = 7 paquets vulnerables / 44 CVE  ->  APRES = 0 CVE
+#
+# Format des commentaires :  AVANT (version vulnerable) -> CVE corrigee
+# =====================================================================
+
+# AVANT 0.12.2 -> CVE-2023-30861 (fuite de session via le cache)
+Flask==3.1.3
+# AVANT 0.14.1 -> CVE-2024-34069 (execution de code via le debugger Werkzeug)
+Werkzeug==3.1.9
+# AVANT 2.10   -> CVE-2019-10906 (evasion du bac a sable -> execution de code)  [CVE PHARE]
+Jinja2==3.1.6
+MarkupSafe==2.1.5
+itsdangerous==2.2.0
+click==8.1.7
+blinker==1.9.0
+PyYAML==6.0.2
+# AVANT 2.19.1 -> CVE-2023-32681 (fuite de l'en-tete Proxy-Authorization)
+requests==2.33.0
+# AVANT 1.23   -> CVE-2019-11236 (injection CRLF)
+urllib3==2.8.0
+# AVANT 2018.11.29 -> CVE-2022-23491 (autorites de certification compromises)
+certifi==2024.8.30
+charset-normalizer==3.4.0
+# AVANT 2.7    -> CVE-2024-3651 (deni de service, complexite quadratique)
+idna==3.15

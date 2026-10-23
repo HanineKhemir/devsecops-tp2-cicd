@@ -1,0 +1,7 @@
+app_name: VulnBank
+currency: TND
+session_timeout_minutes: 30
+features:
+  - accounts
+  - export
+  - rates
