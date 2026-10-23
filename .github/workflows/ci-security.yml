@@ -49,10 +49,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Recuperation du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Installation de Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -69,14 +69,14 @@ jobs:
         run: python -m compileall -q vulnbank tests scripts
 
       - name: Tests unitaires de non-regression de securite
-        run: pytest tests/ -v --tb=short --junitxml=reports/pytest.xml
+        run: pytest --junitxml=reports/pytest.xml
 
       - name: Construction de l'image Docker
         run: docker build -t ${{ env.IMAGE }} .
 
       - name: Publication du rapport de tests
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rapport-tests
           path: reports/pytest.xml
@@ -91,10 +91,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Recuperation du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Installation de Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -114,7 +114,7 @@ jobs:
 
       - name: Publication du rapport SAST
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rapport-sast-bandit
           path: reports/bandit.*
@@ -129,10 +129,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Recuperation du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Installation de Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -152,7 +152,7 @@ jobs:
 
       - name: Publication du rapport SCA
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rapport-sca-pip-audit
           path: reports/pip-audit.*
@@ -171,7 +171,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Recuperation du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Construction de l'image de l'application
         run: docker build -t ${{ env.IMAGE }} .
@@ -233,7 +233,7 @@ jobs:
 
       - name: Publication du rapport DAST
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rapport-dast-zap
           path: reports/zap.*
