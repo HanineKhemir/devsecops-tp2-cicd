@@ -1,10 +1,20 @@
 # =============================================================================
-# TP2 — Pipeline CI/CD de VulnBank (etape 1 : pipeline de base)
+# TP2 — Pipeline CI/CD de VulnBank (etape 2 : SAST + SCA)
 #
-# A ce stade, le pipeline fait ce que fait n'importe quel pipeline d'integration
-# continue : il compile le code, lance les tests unitaires et construit l'image
-# Docker. Il n'y a encore AUCUN scan de securite : c'est le socle sur lequel les
-# portes SAST, SCA puis DAST seront ajoutees dans les commits suivants.
+# Le pipeline devient un GARDE-FOU : il ne se contente plus de tester, il
+# BLOQUE la fusion quand il trouve une vulnerabilite.
+#
+#   build-test  compilation + tests unitaires de non-regression de securite
+#   sast        Bandit     — failles dans NOTRE code       (analyse statique)
+#   sca         pip-audit  — CVE dans NOS DEPENDANCES      (composition)
+#
+# Les jobs sont INDEPENDANTS et tournent en parallele : retour plus rapide, et
+# surtout une PR vulnerable montre TOUS ses problemes d'un coup (si les
+# scanners dependaient de build-test, des tests rouges les empecheraient de
+# tourner). Le job "security-gate" agrege les verdicts : c'est LUI qu'on
+# declare "check requis" dans la protection de branche.
+#
+# La porte DAST (application en cours d'execution) arrive au commit suivant.
 # =============================================================================
 name: CI/CD securise (build, tests, SAST, SCA, DAST)
 
@@ -69,3 +79,122 @@ jobs:
           name: rapport-tests
           path: reports/pytest.xml
           if-no-files-found: ignore
+
+  # ===========================================================================
+  # PORTE 2 — SAST : analyse statique du code (outil du TP1 : Bandit)
+  # ===========================================================================
+  sast:
+    name: 2. SAST (Bandit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Recuperation du code
+        uses: actions/checkout@v4
+
+      - name: Installation de Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Installation de Bandit
+        run: pip install bandit==1.7.10
+
+      # --exit-zero : Bandit ne decide pas du verdict, il ne fait que rapporter.
+      # C'est notre script de porte qui applique la regle de blocage.
+      - name: Scan statique du code
+        run: |
+          mkdir -p reports
+          bandit -r vulnbank -f json -o reports/bandit.json --exit-zero
+          bandit -r vulnbank -f txt -o reports/bandit.txt --exit-zero || true
+
+      - name: "REGLE DE BLOCAGE : aucune vulnerabilite de severite HIGH"
+        run: PYTHONPATH=scripts python scripts/gate_bandit.py reports/bandit.json
+
+      - name: Publication du rapport SAST
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-sast-bandit
+          path: reports/bandit.*
+          if-no-files-found: ignore
+
+  # ===========================================================================
+  # PORTE 3 — SCA : securite des dependances (outil du TP1 : pip-audit / OSV)
+  # ===========================================================================
+  sca:
+    name: 3. SCA (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Recuperation du code
+        uses: actions/checkout@v4
+
+      - name: Installation de Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Installation de pip-audit
+        run: pip install pip-audit==2.7.3
+
+      # "|| true" : pip-audit sort en erreur des qu'il trouve une CVE. On veut le
+      # rapport complet, puis NOTRE verdict (voir scripts/gate_sca.py).
+      - name: Analyse des dependances (base OSV)
+        run: |
+          mkdir -p reports
+          pip-audit -r requirements.txt -f json -o reports/pip-audit.json || true
+          pip-audit -r requirements.txt -f columns -o reports/pip-audit.txt || true
+
+      - name: "REGLE DE BLOCAGE : aucune CVE connue dans les dependances"
+        run: PYTHONPATH=scripts python scripts/gate_sca.py reports/pip-audit.json
+
+      - name: Publication du rapport SCA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-sca-pip-audit
+          path: reports/pip-audit.*
+          if-no-files-found: ignore
+
+  # ===========================================================================
+  # VERDICT GLOBAL — c'est ce job qu'on declare "check requis" sur main
+  # ===========================================================================
+  security-gate:
+    name: Verdict de securite
+    runs-on: ubuntu-latest
+    needs: [build-test, sast, sca]
+    if: always() # doit s'executer meme si une porte a echoue
+    steps:
+      - name: Agregation des quatre portes
+        run: |
+          build='${{ needs.build-test.result }}'
+          sast='${{ needs.sast.result }}'
+          sca='${{ needs.sca.result }}'
+          dast='${{ needs.dast.result }}'
+
+          emoji() { [ "$1" = "success" ] && echo "✅" || echo "❌"; }
+
+          {
+            echo "## Verdict de securite"
+            echo ""
+            echo "| Porte | Outil | Resultat |"
+            echo "|---|---|---|"
+            echo "| 1. Build & tests | pytest | $(emoji "$build") $build |"
+            echo "| 2. SAST | Bandit | $(emoji "$sast") $sast |"
+            echo "| 3. SCA | pip-audit / OSV | $(emoji "$sca") $sca |"
+            echo "| 4. DAST | OWASP ZAP | $(emoji "$dast") $dast |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$build" = "success" ] && [ "$sast" = "success" ] \
+             && [ "$sca" = "success" ] && [ "$dast" = "success" ]; then
+            echo "Les quatre portes sont vertes : la fusion est autorisee." \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "PIPELINE VERT — fusion autorisee."
+            exit 0
+          fi
+
+          echo "Au moins une porte est rouge : **fusion bloquee**." \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "PIPELINE ROUGE — fusion bloquee. Voir les rapports en artifacts."
+          exit 1
