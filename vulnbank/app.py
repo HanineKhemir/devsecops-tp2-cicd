@@ -147,8 +147,16 @@ def rates():
     #   On ne sait plus si on parle au vrai serveur -> attaque "man-in-the-middle"
     #   possible (interception/modification des echanges).
     # CORRECTION : on garde la verification du certificat (verify=True par defaut).
-    response = requests.get(RATES_URL, timeout=10)
-    return response.json()
+    # NOTE (TP2) : l'appel reseau est encapsule dans un try/except. Pendant le
+    #   scan DAST du pipeline, l'API externe peut etre injoignable ou lente : sans
+    #   ce repli, la route renverrait une erreur 500 et rendrait le pipeline
+    #   instable (echecs aleatoires). La verification TLS reste active.
+    try:
+        response = requests.get(RATES_URL, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException:
+        return {"base": "TND", "rates": {}, "source": "indisponible"}, 200
 
 
 if __name__ == "__main__":

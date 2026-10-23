@@ -1,0 +1,12 @@
+# =====================================================================
+# Outillage du pipeline CI/CD (TP2) — non embarque dans l'image Docker
+# =====================================================================
+
+# Tests unitaires (job "build-test")
+pytest==8.3.3
+
+# SAST : analyse statique du code Python (job "sast") — outil du TP1
+bandit==1.7.10
+
+# SCA : vulnerabilites connues (CVE) des dependances (job "sca") — outil du TP1
+pip-audit==2.7.3
