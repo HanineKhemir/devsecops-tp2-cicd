@@ -1,0 +1,71 @@
+# =============================================================================
+# TP2 — Pipeline CI/CD de VulnBank (etape 1 : pipeline de base)
+#
+# A ce stade, le pipeline fait ce que fait n'importe quel pipeline d'integration
+# continue : il compile le code, lance les tests unitaires et construit l'image
+# Docker. Il n'y a encore AUCUN scan de securite : c'est le socle sur lequel les
+# portes SAST, SCA puis DAST seront ajoutees dans les commits suivants.
+# =============================================================================
+name: CI/CD securise (build, tests, SAST, SCA, DAST)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # permet de relancer le pipeline a la main
+
+# Annule le run precedent si on repousse sur la meme branche (economie de minutes).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  IMAGE: vulnbank:ci
+
+jobs:
+  # ===========================================================================
+  # PORTE 1 — Compilation et tests unitaires
+  # ===========================================================================
+  build-test:
+    name: 1. Build & tests unitaires
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Recuperation du code
+        uses: actions/checkout@v4
+
+      - name: Installation de Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Installation des dependances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Compilation du code (erreurs de syntaxe)
+        run: python -m compileall -q vulnbank tests scripts
+
+      - name: Tests unitaires de non-regression de securite
+        run: pytest tests/ -v --tb=short --junitxml=reports/pytest.xml
+
+      - name: Construction de l'image Docker
+        run: docker build -t ${{ env.IMAGE }} .
+
+      - name: Publication du rapport de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-tests
+          path: reports/pytest.xml
+          if-no-files-found: ignore
