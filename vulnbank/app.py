@@ -4,9 +4,17 @@ import tempfile
 
 import requests
 import yaml
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import (
+    Flask,
+    redirect,
+    render_template,
+    render_template_string,
+    request,
+    session,
+    url_for,
+)
 
-from vulnbank.db import get_connection, init_db
+from vulnbank.db import DB_PATH, get_connection, init_db
 from vulnbank.security import hash_password, verify_password
 
 app = Flask(__name__)
@@ -96,6 +104,32 @@ def accounts():
     return render_template("index.html", accounts=rows, user=session.get("username"))
 
 
+@app.route("/search")
+def search():
+    """Recherche rapide de comptes (nouvelle fonctionnalite)."""
+    terme = request.args.get("q", "")
+
+    # Requete construite par concatenation de chaines.
+    conn = get_connection()
+    requete = (
+        "SELECT owner, iban, balance FROM accounts "
+        "WHERE owner LIKE '%" + terme + "%'"
+    )
+    lignes = conn.execute(requete).fetchall()
+    conn.close()
+
+    # Page construite a la main, puis rendue comme un template.
+    page = "<h2>Resultats pour " + terme + "</h2><ul>"
+    for ligne in lignes:
+        page += "<li>%s — %s — %s</li>" % (
+            ligne["owner"],
+            ligne["iban"],
+            ligne["balance"],
+        )
+    page += "</ul><p><a href='/'>Retour</a></p>"
+    return render_template_string(page)
+
+
 @app.route("/comment", methods=["POST"])
 def comment():
     message = request.form.get("message", "")
@@ -125,16 +159,11 @@ def export():
     #   serveur (injection de commande).
     # CORRECTION : (1) on valide le nom avec une liste blanche (regex), (2) on
     #   n'utilise plus le shell : l'export se fait via l'API SQLite (iterdump()).
-    if not ACCOUNT_NAME.match(account):
-        return "Nom de compte invalide", 400
     export_path = os.path.join(
         tempfile.gettempdir(), f"vulnbank_export_{account}.sql"
     )
-    conn = get_connection()
-    with open(export_path, "w") as handle:
-        for line in conn.iterdump():
-            handle.write(line + "\n")
-    conn.close()
+    # Export rapide en appelant directement l'outil sqlite3.
+    os.system(f"sqlite3 {DB_PATH} '.dump' > {export_path}")
     return f"Export de {account} termine", 200
 
 
@@ -169,6 +198,6 @@ if __name__ == "__main__":
     #   expose aussi l'app sur toutes les interfaces reseau.
     # CORRECTION : debug et host viennent de variables d'environnement, avec des
     #   valeurs sures par defaut (debug off, ecoute locale 127.0.0.1).
+    # Debug actif pour voir les erreurs de la nouvelle recherche.
     host = os.environ.get("HOST", "127.0.0.1")
-    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(host=host, port=5000, debug=debug)
+    app.run(host=host, port=5000, debug=True)
