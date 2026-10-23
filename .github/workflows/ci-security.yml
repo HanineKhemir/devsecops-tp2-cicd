@@ -1,20 +1,22 @@
 # =============================================================================
-# TP2 — Pipeline CI/CD de VulnBank (etape 2 : SAST + SCA)
+# TP2 — Pipeline CI/CD securise de VulnBank
 #
-# Le pipeline devient un GARDE-FOU : il ne se contente plus de tester, il
-# BLOQUE la fusion quand il trouve une vulnerabilite.
+# Le pipeline sert de GARDE-FOU : aucune modification ne peut etre fusionnee
+# dans main sans avoir passe quatre portes.
 #
 #   build-test  compilation + tests unitaires de non-regression de securite
-#   sast        Bandit     — failles dans NOTRE code       (analyse statique)
-#   sca         pip-audit  — CVE dans NOS DEPENDANCES      (composition)
+#   sast        Bandit        — failles dans NOTRE code          (analyse statique)
+#   sca         pip-audit     — CVE dans NOS DEPENDANCES         (composition)
+#   dast        OWASP ZAP     — failles de l'app QUI TOURNE      (analyse dynamique)
 #
-# Les jobs sont INDEPENDANTS et tournent en parallele : retour plus rapide, et
-# surtout une PR vulnerable montre TOUS ses problemes d'un coup (si les
-# scanners dependaient de build-test, des tests rouges les empecheraient de
-# tourner). Le job "security-gate" agrege les verdicts : c'est LUI qu'on
-# declare "check requis" dans la protection de branche.
+# Les quatre jobs sont INDEPENDANTS et tournent en parallele. Choix volontaire :
+#   - retour plus rapide pour le developpeur (~4 min au lieu de la somme) ;
+#   - surtout, une PR vulnerable doit faire apparaitre TOUS ses problemes d'un
+#     coup. Si les scanners dependaient de build-test, des tests rouges les
+#     empecheraient de tourner et la PR ne montrerait qu'une partie des failles.
 #
-# La porte DAST (application en cours d'execution) arrive au commit suivant.
+# Le job final "security-gate" agrege les quatre verdicts : c'est LUI qu'on
+# declare "check requis" dans la protection de branche de GitHub.
 # =============================================================================
 name: CI/CD securise (build, tests, SAST, SCA, DAST)
 
@@ -157,12 +159,102 @@ jobs:
           if-no-files-found: ignore
 
   # ===========================================================================
+  # PORTE 4 — DAST : environnement EPHEMERE + scan actif OWASP ZAP
+  #
+  # "Ephemere" = l'application est deployee pour le seul temps du scan, dans un
+  # reseau Docker prive du runner, puis detruite. Aucune infrastructure
+  # permanente a maintenir, et chaque PR est testee sur une instance propre.
+  # ===========================================================================
+  dast:
+    name: 4. DAST (OWASP ZAP sur environnement ephemere)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Recuperation du code
+        uses: actions/checkout@v4
+
+      - name: Construction de l'image de l'application
+        run: docker build -t ${{ env.IMAGE }} .
+
+      # --- Deploiement de l'environnement ephemere -------------------------
+      - name: Creation du reseau prive
+        run: docker network create zapnet
+
+      - name: Deploiement de l'application
+        run: |
+          docker run -d --name vulnbank --network zapnet \
+            -e HOST=0.0.0.0 \
+            -e SECRET_KEY='${{ secrets.CI_SECRET_KEY || github.run_id }}' \
+            ${{ env.IMAGE }}
+
+      # On attend la sonde HEALTHCHECK du Dockerfile : scanner une application
+      # pas encore demarree donnerait un rapport vide, donc une porte verte
+      # a tort (faux negatif).
+      - name: Attente du demarrage de l'application
+        run: |
+          for tentative in $(seq 1 30); do
+            etat=$(docker inspect --format='{{.State.Health.Status}}' vulnbank)
+            echo "tentative $tentative : etat = $etat"
+            if [ "$etat" = "healthy" ]; then
+              echo "Application prete."
+              exit 0
+            fi
+            if [ "$etat" = "unhealthy" ]; then
+              echo "L'application ne demarre pas."
+              docker logs vulnbank
+              exit 1
+            fi
+            sleep 3
+          done
+          echo "Delai depasse : l'application n'est pas prete."
+          docker logs vulnbank
+          exit 1
+
+      # --- Scan dynamique --------------------------------------------------
+      # zap-full-scan.py = spider + scan ACTIF (ZAP envoie de vraies attaques).
+      # Le scan "baseline" (passif) ne produit presque jamais d'alerte High :
+      # il ne verrait ni une injection SQL ni un XSS reflechi.
+      #   -I : ZAP sort en 0 quoi qu'il trouve (notre script tranche)
+      #   -m 2 : 2 minutes maximum pour l'exploration (spider)
+      # chmod 777 : le conteneur ZAP tourne sous un autre utilisateur que le
+      # runner et doit pouvoir ecrire ses rapports dans reports/.
+      - name: Scan dynamique de l'application lancee
+        run: |
+          mkdir -p reports && chmod 777 reports
+          docker run --rm --network zapnet \
+            -v ${{ github.workspace }}/reports:/zap/wrk:rw \
+            -v ${{ github.workspace }}/.zap/rules.tsv:/zap/wrk/rules.tsv:ro \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-full-scan.py -t http://vulnbank:5000 \
+              -J zap.json -r zap.html -c rules.tsv -I -m 2
+
+      - name: "REGLE DE BLOCAGE : aucune alerte ZAP de risque High"
+        run: PYTHONPATH=scripts python3 scripts/gate_zap.py reports/zap.json
+
+      - name: Publication du rapport DAST
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-dast-zap
+          path: reports/zap.*
+          if-no-files-found: ignore
+
+      # --- Destruction de l'environnement ephemere -------------------------
+      - name: Journal de l'application et nettoyage
+        if: always()
+        run: |
+          echo "----- journal du conteneur -----"
+          docker logs vulnbank || true
+          docker rm -f vulnbank || true
+          docker network rm zapnet || true
+
+  # ===========================================================================
   # VERDICT GLOBAL — c'est ce job qu'on declare "check requis" sur main
   # ===========================================================================
   security-gate:
     name: Verdict de securite
     runs-on: ubuntu-latest
-    needs: [build-test, sast, sca]
+    needs: [build-test, sast, sca, dast]
     if: always() # doit s'executer meme si une porte a echoue
     steps:
       - name: Agregation des quatre portes

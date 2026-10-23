@@ -1,0 +1,49 @@
+# =====================================================================
+# Environnement EPHEMERE du TP2 : application + scanner DAST
+#
+# C'est l'equivalent local de ce que fait le job "dast" du pipeline
+# (.github/workflows/ci-security.yml). "Ephemere" = cet environnement est
+# cree au debut du scan et detruit a la fin : il ne survit pas au run.
+#
+#   docker compose -f docker-compose.ci.yml up --abort-on-container-exit
+#   docker compose -f docker-compose.ci.yml down -v
+#
+# Le rapport ZAP est ecrit dans ./reports/ (zap.json + zap.html).
+# =====================================================================
+services:
+  # L'application sous test. Elle n'est PAS exposee sur le poste :
+  # seul le conteneur ZAP y accede, par le reseau interne "zapnet".
+  app:
+    build: .
+    image: vulnbank:ci
+    container_name: vulnbank
+    environment:
+      HOST: 0.0.0.0
+      # Secret injecte par l'environnement (jamais ecrit en dur : TP1, Bandit B105).
+      SECRET_KEY: cle-ephemere-ci-uniquement
+    networks: [zapnet]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/', timeout=2).status == 200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # OWASP ZAP en scan ACTIF : il attend que l'app soit saine, puis l'attaque.
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [zapnet]
+    volumes:
+      - ./reports:/zap/wrk:rw
+      - ./.zap/rules.tsv:/zap/wrk/rules.tsv:ro
+    # -I : ZAP ne decide pas du verdict (code de sortie 0). C'est
+    #      scripts/gate_zap.py qui applique notre regle de blocage.
+    command: >
+      zap-full-scan.py -t http://vulnbank:5000
+      -J zap.json -r zap.html -c rules.tsv -I -m 2
+
+networks:
+  zapnet:
+    driver: bridge
