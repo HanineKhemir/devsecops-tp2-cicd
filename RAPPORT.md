@@ -355,7 +355,7 @@ return render_template("search.html", terme=terme, resultats=lignes)
 | Porte | Verdict | Détail |
 |---|---|---|
 | 1. Build & tests | ✅ | **17 tests** passants (14 + 3 ajoutés pour `/search`) |
-| 2. SAST (Bandit) | ✅ | 0 HIGH, 0 MEDIUM, 0 LOW sur 132 lignes |
+| 2. SAST (Bandit) | ✅ | 0 HIGH, 0 MEDIUM, 0 LOW sur 143 lignes |
 | 3. SCA (pip-audit) | ✅ | 0 CVE sur 13 dépendances |
 | 4. DAST (OWASP ZAP) | ✅ | **0 High**, 4 Medium, 6 Low, 3 Info — 50 requêtes d'attaque sur 7 routes, `/search` incluse |
 
