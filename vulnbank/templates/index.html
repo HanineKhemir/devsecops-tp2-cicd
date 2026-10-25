@@ -42,6 +42,12 @@
   </table>
   {% endif %}
 
+  <h2>Recherche rapide</h2>
+  <form method="get" action="/search">
+    <input name="q" placeholder="nom du titulaire">
+    <button type="submit">Rechercher</button>
+  </form>
+
   <h2>Laisser un commentaire</h2>
   <form method="post" action="/comment">
     <textarea name="message" rows="3" cols="40" placeholder="votre message"></textarea>
