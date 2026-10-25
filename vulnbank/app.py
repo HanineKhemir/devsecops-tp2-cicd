@@ -96,6 +96,41 @@ def accounts():
     return render_template("index.html", accounts=rows, user=session.get("username"))
 
 
+@app.route("/search")
+def search():
+    """Recherche rapide de comptes (version securisee)."""
+    terme = request.args.get("q", "")
+
+    # FAILLE CORRIGEE : Injection SQL   |   DETECTEE PAR : OWASP ZAP (scan
+    #   actif, alerte High "SQL Injection") et Bandit (regle B608, severite
+    #   moyenne : il voit la concatenation mais ne peut pas l'exploiter).
+    # AVANT (vulnerable) :
+    #   requete = "... WHERE owner LIKE '%" + terme + "%'"
+    #   lignes = conn.execute(requete).fetchall()
+    # POURQUOI FAUX : la saisie etait collee dans la requete SQL. ZAP a envoye
+    #   la charge utile   %' OR '1'='1' --   et a obtenu TOUS les comptes.
+    # CORRECTION : requete PARAMETREE. Le "?" est une valeur liee : la saisie
+    #   est une donnee, jamais du code SQL.
+    conn = get_connection()
+    lignes = conn.execute(
+        "SELECT owner, iban, balance FROM accounts WHERE owner LIKE ?",
+        (f"%{terme}%",),
+    ).fetchall()
+    conn.close()
+
+    # FAILLE CORRIGEE : XSS reflechi   |   DETECTEE PAR : OWASP ZAP (scan
+    #   actif, alerte High "Cross Site Scripting (Reflected)").
+    # AVANT (vulnerable) :
+    #   page = "<h2>Resultats pour " + terme + "</h2>..."
+    #   return render_template_string(page)
+    # POURQUOI FAUX : render_template_string() compile la chaine comme un
+    #   template. La saisie devenait donc du code HTML (et meme du Jinja2) :
+    #   ZAP a injecte <script>alert(1)</script> et l'a vu s'executer.
+    # CORRECTION : un vrai template. Jinja2 echappe automatiquement les
+    #   variables : les balises s'affichent comme du texte.
+    return render_template("search.html", terme=terme, resultats=lignes)
+
+
 @app.route("/comment", methods=["POST"])
 def comment():
     message = request.form.get("message", "")
